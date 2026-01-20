@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  line-translator-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: line-translator-bot
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
