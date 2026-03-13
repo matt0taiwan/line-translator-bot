@@ -101,11 +101,6 @@ class LineWebhookHandler:
         if hasattr(event.source, 'group_id'):
             group_id = event.source.group_id
 
-        # 忽略過短的訊息
-        if len(text.strip()) < 2:
-            logger.debug(f"忽略過短訊息: {text}")
-            return
-
         # 偵測語言
         detected_lang = self.detector.detect(text)
         logger.info(f"收到訊息 [user: {user_id}] [lang: {detected_lang}]: {text[:50]}")
@@ -130,11 +125,14 @@ class LineWebhookHandler:
         # 建立訊息（帶有發言者頭像）
         sender = None
         if display_name and picture_url:
-            sender = Sender(
-                name=display_name,
-                icon_url=picture_url
-            )
-            logger.info(f"使用 Sender 自訂: {display_name}")
+            # 清理顯示名稱，移除 LINE Sender API 不允許的字元
+            clean_name = self._sanitize_sender_name(display_name)
+            if clean_name:
+                sender = Sender(
+                    name=clean_name,
+                    icon_url=picture_url
+                )
+                logger.info(f"使用 Sender 自訂: {clean_name}")
 
         # 建立回覆訊息
         message = TextMessage(
@@ -168,6 +166,26 @@ class LineWebhookHandler:
             )
         except Exception as e:
             logger.error(f"回覆訊息失敗: {e}")
+
+    @staticmethod
+    def _sanitize_sender_name(name: str) -> str:
+        """
+        清理 Sender 顯示名稱，移除 LINE API 不允許的字元和 NG 敏感詞。
+        LINE Sender name 限制：1-20 字元，不可含特殊符號、品牌名稱等。
+        """
+        import re
+        # 移除括號及其內容（全形和半形）
+        clean = re.sub(r'[（(][^）)]*[）)]', '', name)
+        # 移除 * 和其他可能被 LINE 視為 NG 的符號
+        clean = re.sub(r'[*\[\]`~#|\\]', '', clean)
+        # 移除 LINE 品牌相關 NG 敏感詞（不區分大小寫）
+        clean = re.sub(r'\bline\b', '', clean, flags=re.IGNORECASE)
+        # 移除多餘空格
+        clean = re.sub(r'\s+', ' ', clean).strip()
+        # LINE Sender name 上限 20 字元
+        if len(clean) > 20:
+            clean = clean[:20].strip()
+        return clean
 
     def handle_webhook(self, body: str, signature: str):
         """

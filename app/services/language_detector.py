@@ -9,6 +9,14 @@ class LanguageDetector:
 
     # 中文字元範圍（包含繁簡體）
     CHINESE_PATTERN = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
+    # @mentions 模式
+    MENTION_PATTERN = re.compile(r'@\S+(?:\s+\S+)?')
+
+    def _preprocess(self, text: str) -> str:
+        """移除 @mentions 和 emoji，保留實際語言內容"""
+        clean = self.MENTION_PATTERN.sub('', text)
+        clean = clean.strip()
+        return clean if clean else text
 
     def detect(self, text: str) -> str:
         """
@@ -23,21 +31,24 @@ class LanguageDetector:
         if not text or not text.strip():
             return "unknown"
 
+        # 移除 @mentions 再偵測語言
+        clean_text = self._preprocess(text)
+
         # 優先使用正則表達式檢測中文
-        if self._contains_chinese(text):
-            chinese_ratio = self._calculate_chinese_ratio(text)
+        if self._contains_chinese(clean_text):
+            chinese_ratio = self._calculate_chinese_ratio(clean_text)
             if chinese_ratio > 0.3:
                 logger.debug(f"偵測到中文 (比例: {chinese_ratio:.2f})")
                 return "zh"
 
         # 使用 langdetect 進行偵測
         try:
-            detected = detect(text)
+            detected = detect(clean_text)
             logger.debug(f"langdetect 偵測結果: {detected}")
 
             # 中文相關語言碼
             if detected in ('zh-cn', 'zh-tw', 'zh', 'ko', 'ja'):
-                if self._contains_chinese(text):
+                if self._contains_chinese(clean_text):
                     return "zh"
 
             # 印尼文或馬來文
@@ -45,7 +56,7 @@ class LanguageDetector:
                 return "id"
 
             # 檢查印尼文常見詞
-            if self._likely_indonesian(text):
+            if self._likely_indonesian(clean_text):
                 return "id"
 
         except LangDetectException as e:
