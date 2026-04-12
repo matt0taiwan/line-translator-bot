@@ -41,6 +41,9 @@ env/
 logs/
 *.log
 
+# Admin command queue (host bind-mount)
+admin-queue/
+
 # Docker
 docker-compose.override.yml
 

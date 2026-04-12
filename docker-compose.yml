@@ -13,6 +13,7 @@ services:
       - .env
     volumes:
       - ./logs:/app/logs
+      - ./admin-queue:/app/admin-queue
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s

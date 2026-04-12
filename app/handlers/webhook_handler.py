@@ -19,6 +19,7 @@ from loguru import logger
 
 from app.services.language_detector import LanguageDetector
 from app.services.translator import TranslatorService
+from app.services import admin_commands
 from app.config import get_settings
 
 
@@ -101,6 +102,26 @@ class LineWebhookHandler:
         if hasattr(event.source, 'group_id'):
             group_id = event.source.group_id
 
+        # 管理員私訊不翻譯（群組中仍正常翻譯）
+        OWNER_USER_ID = "U1f911f0ce71183e289de2b187335fb0d"
+        if user_id == OWNER_USER_ID and group_id is None:
+            parsed = admin_commands.parse(text)
+            if parsed:
+                cmd, args = parsed
+                logger.info(f"收到管理員指令: {cmd} {args}")
+                if cmd == "/help":
+                    await self._reply_message(
+                        event.reply_token,
+                        TextMessage(text=admin_commands.build_help_reply()),
+                    )
+                else:
+                    ok = admin_commands.enqueue(cmd, args, user_id)
+                    ack = "⏳ 指令已排入佇列，稍後回報" if ok else "❌ 無法排入佇列，請查看 bot log"
+                    await self._reply_message(event.reply_token, TextMessage(text=ack))
+                return
+            logger.info("收到管理員私訊（非指令），跳過翻譯")
+            return
+
         # 偵測語言
         detected_lang = self.detector.detect(text)
         logger.info(f"收到訊息 [user: {user_id}] [lang: {detected_lang}]: {text[:50]}")
@@ -124,15 +145,15 @@ class LineWebhookHandler:
 
         # 建立訊息（帶有發言者頭像）
         sender = None
-        if display_name and picture_url:
+        if display_name:
             # 清理顯示名稱，移除 LINE Sender API 不允許的字元
             clean_name = self._sanitize_sender_name(display_name)
             if clean_name:
                 sender = Sender(
                     name=clean_name,
-                    icon_url=picture_url
+                    icon_url=picture_url,  # 沒頭貼時為 None，LINE 會用 bot 預設圖示
                 )
-                logger.info(f"使用 Sender 自訂: {clean_name}")
+                logger.info(f"使用 Sender 自訂: {clean_name} (icon={'yes' if picture_url else 'no'})")
 
         # 建立回覆訊息
         message = TextMessage(
