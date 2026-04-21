@@ -20,6 +20,7 @@ from loguru import logger
 from app.services.language_detector import LanguageDetector
 from app.services.translator import TranslatorService
 from app.services import admin_commands
+from app.services import openclaw_client
 from app.config import get_settings
 
 
@@ -102,13 +103,60 @@ class LineWebhookHandler:
         if hasattr(event.source, 'group_id'):
             group_id = event.source.group_id
 
-        # 管理員私訊不翻譯（群組中仍正常翻譯）
+        # 管理員私訊：先走 OpenClaw AI，失敗才 fallback 到舊指令系統（群組中仍正常翻譯）
         OWNER_USER_ID = "U1f911f0ce71183e289de2b187335fb0d"
         if user_id == OWNER_USER_ID and group_id is None:
+            import asyncio
+
+            REPLY_WINDOW = 20  # reply_token 安全窗口（秒）
+
+            # 發送 OpenClaw 請求（背景 task，不會被 cancel）
+            task = asyncio.create_task(openclaw_client.ask(text))
+
+            # 等最多 REPLY_WINDOW 秒，看能不能在 reply_token 過期前拿到回覆
+            done, _ = await asyncio.wait({task}, timeout=REPLY_WINDOW)
+
+            if done:
+                ai_response = task.result()
+                if ai_response:
+                    logger.info(f"OpenClaw 回覆成功（{len(ai_response)} 字元，reply_token 內）")
+                    await self._reply_message(event.reply_token, TextMessage(text=ai_response))
+                    return
+                # OpenClaw 回傳 None（錯誤），走 fallback
+                logger.info("OpenClaw 回傳 None，嘗試 fallback 指令系統")
+            else:
+                # OpenClaw 還在思考，reply_token 即將過期
+                # 先回覆「思考中」，背景等結果再用 Push API 推送
+                logger.info("OpenClaw 超過 reply_token 窗口，切換為背景推送模式")
+                await self._reply_message(
+                    event.reply_token,
+                    TextMessage(text="🦞 Sibyl 思考中，稍後回覆⋯"),
+                )
+
+                async def _push_when_ready():
+                    try:
+                        result = await task
+                        if result:
+                            logger.info(f"OpenClaw 背景回覆成功（{len(result)} 字元），Push 推送")
+                            await self._push_message(user_id, TextMessage(text=result))
+                        else:
+                            logger.warning("OpenClaw 背景任務回傳 None")
+                            await self._push_message(
+                                user_id,
+                                TextMessage(text="⚠️ Sibyl 處理失敗，請稍後再試或使用 /help 查看備援指令"),
+                            )
+                    except Exception as e:
+                        logger.error(f"OpenClaw 背景推送失敗：{e}")
+
+                asyncio.create_task(_push_when_ready())
+                return
+
+            # Fallback：舊的固定指令系統
+            logger.info("OpenClaw 無回應，嘗試 fallback 指令系統")
             parsed = admin_commands.parse(text)
             if parsed:
                 cmd, args = parsed
-                logger.info(f"收到管理員指令: {cmd} {args}")
+                logger.info(f"Fallback 指令: {cmd} {args}")
                 if cmd == "/help":
                     await self._reply_message(
                         event.reply_token,
@@ -116,10 +164,10 @@ class LineWebhookHandler:
                     )
                 else:
                     ok = admin_commands.enqueue(cmd, args, user_id)
-                    ack = "⏳ 指令已排入佇列，稍後回報" if ok else "❌ 無法排入佇列，請查看 bot log"
+                    ack = "⏳ OpenClaw 無回應，已切換備援指令，稍後回報" if ok else "❌ 佇列失敗，請查看 bot log"
                     await self._reply_message(event.reply_token, TextMessage(text=ack))
                 return
-            logger.info("收到管理員私訊（非指令），跳過翻譯")
+            logger.info("收到管理員私訊，OpenClaw 及指令系統皆無法處理，跳過")
             return
 
         # 偵測語言
@@ -177,7 +225,7 @@ class LineWebhookHandler:
         await self._reply_message(event.reply_token, message)
 
     async def _reply_message(self, reply_token: str, message: TextMessage):
-        """回覆訊息"""
+        """回覆訊息（使用 reply_token，免費）"""
         try:
             await self.messaging_api.reply_message(
                 ReplyMessageRequest(
@@ -187,6 +235,18 @@ class LineWebhookHandler:
             )
         except Exception as e:
             logger.error(f"回覆訊息失敗: {e}")
+
+    async def _push_message(self, user_id: str, message: TextMessage):
+        """主動推送訊息（用於 reply_token 過期後的非同步回覆）"""
+        try:
+            await self.messaging_api.push_message(
+                PushMessageRequest(
+                    to=user_id,
+                    messages=[message]
+                )
+            )
+        except Exception as e:
+            logger.error(f"推送訊息失敗: {e}")
 
     @staticmethod
     def _sanitize_sender_name(name: str) -> str:

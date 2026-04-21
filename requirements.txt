@@ -17,3 +17,6 @@ pydantic-settings>=2.1.0
 
 # Logging
 loguru>=0.7.0
+
+# HTTP Client (OpenClaw API)
+httpx>=0.27.0

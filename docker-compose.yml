@@ -14,6 +14,8 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./admin-queue:/app/admin-queue
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
