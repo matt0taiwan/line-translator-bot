@@ -44,6 +44,9 @@ logs/
 # Admin command queue (host bind-mount)
 admin-queue/
 
+# SQLite conversation history (contains real chat content)
+data/
+
 # Docker
 docker-compose.override.yml
 

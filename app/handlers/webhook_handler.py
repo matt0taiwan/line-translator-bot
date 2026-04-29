@@ -111,7 +111,7 @@ class LineWebhookHandler:
             REPLY_WINDOW = 20  # reply_token 安全窗口（秒）
 
             # 發送 OpenClaw 請求（背景 task，不會被 cancel）
-            task = asyncio.create_task(openclaw_client.ask(text))
+            task = asyncio.create_task(openclaw_client.ask(text, user_id=user_id))
 
             # 等最多 REPLY_WINDOW 秒，看能不能在 reply_token 過期前拿到回覆
             done, _ = await asyncio.wait({task}, timeout=REPLY_WINDOW)
