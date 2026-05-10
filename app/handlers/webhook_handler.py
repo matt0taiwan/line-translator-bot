@@ -179,10 +179,10 @@ class LineWebhookHandler:
 
         if detected_lang == 'zh':
             translated_text = await self.translator.chinese_to_indonesian(text)
-        elif detected_lang == 'id':
-            translated_text = await self.translator.indonesian_to_chinese(text)
+        elif detected_lang == 'other':
+            translated_text = await self.translator.to_chinese(text)
         else:
-            logger.info("無法偵測語言，跳過翻譯")
+            logger.info("空白訊息，跳過翻譯")
             return
 
         if not translated_text:

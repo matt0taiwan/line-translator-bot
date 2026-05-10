@@ -15,7 +15,7 @@ class TranslatorService:
 
     def __init__(self):
         self.zh_to_id = GoogleTranslator(source='zh-TW', target='id')
-        self.id_to_zh = GoogleTranslator(source='id', target='zh-TW')
+        self.auto_to_zh = GoogleTranslator(source='auto', target='zh-TW')
 
     async def translate(
         self,
@@ -28,7 +28,7 @@ class TranslatorService:
 
         Args:
             text: 要翻譯的文字
-            source_lang: 來源語言 ('zh' 或 'id')
+            source_lang: 來源語言 ('zh' 或 'auto')
             target_lang: 目標語言 ('zh' 或 'id')
 
         Returns:
@@ -42,8 +42,8 @@ class TranslatorService:
 
             if source_lang == 'zh' and target_lang == 'id':
                 translator = self.zh_to_id
-            elif source_lang == 'id' and target_lang == 'zh':
-                translator = self.id_to_zh
+            elif source_lang == 'auto' and target_lang == 'zh':
+                translator = self.auto_to_zh
             else:
                 logger.error(f"不支援的語言組合: {source_lang} -> {target_lang}")
                 return None
@@ -74,6 +74,6 @@ class TranslatorService:
         """中文翻譯成印尼文"""
         return await self.translate(text, 'zh', 'id')
 
-    async def indonesian_to_chinese(self, text: str) -> str | None:
-        """印尼文翻譯成中文"""
-        return await self.translate(text, 'id', 'zh')
+    async def to_chinese(self, text: str) -> str | None:
+        """非中文翻譯成中文（由 Google auto-detect 判斷來源語言）"""
+        return await self.translate(text, 'auto', 'zh')

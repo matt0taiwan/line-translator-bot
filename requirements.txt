@@ -8,9 +8,6 @@ line-bot-sdk>=3.5.0
 # Translation Services
 deep-translator>=1.11.0
 
-# Language Detection
-langdetect>=1.0.9
-
 # Environment & Configuration
 python-dotenv>=1.0.0
 pydantic-settings>=2.1.0

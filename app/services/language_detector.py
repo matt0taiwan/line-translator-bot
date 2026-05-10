@@ -1,90 +1,49 @@
-"""語言偵測服務 - 偵測輸入文字是中文還是印尼文"""
+"""語言偵測服務 - 判斷訊息要往哪個方向翻譯"""
 import re
-from langdetect import detect, LangDetectException
 from loguru import logger
 
 
 class LanguageDetector:
-    """語言偵測器"""
+    """偵測訊息是中文還是非中文。非中文一律交給 Google auto-detect 翻成中文。"""
 
-    # 中文字元範圍（包含繁簡體）
-    CHINESE_PATTERN = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
-    # @mentions 模式
+    CHINESE_PATTERN = re.compile(r'[一-鿿㐀-䶿]')
     MENTION_PATTERN = re.compile(r'@\S+(?:\s+\S+)?')
 
     def _preprocess(self, text: str) -> str:
-        """移除 @mentions 和 emoji，保留實際語言內容"""
+        """移除 @mentions，避免被提到的中文名字干擾比例計算"""
         clean = self.MENTION_PATTERN.sub('', text)
         clean = clean.strip()
         return clean if clean else text
 
     def detect(self, text: str) -> str:
         """
-        偵測文字語言
-
-        Args:
-            text: 要偵測的文字
+        判斷訊息方向。
 
         Returns:
-            語言代碼: 'zh' (中文) 或 'id' (印尼文) 或 'unknown'
+            'zh'      - 中文訊息，要翻成印尼文
+            'other'   - 非中文訊息，要交給 Google auto-detect 翻成中文
+            'unknown' - 空白文字
         """
         if not text or not text.strip():
             return "unknown"
 
-        # 移除 @mentions 再偵測語言
         clean_text = self._preprocess(text)
 
-        # 優先使用正則表達式檢測中文
         if self._contains_chinese(clean_text):
             chinese_ratio = self._calculate_chinese_ratio(clean_text)
             if chinese_ratio > 0.3:
                 logger.debug(f"偵測到中文 (比例: {chinese_ratio:.2f})")
                 return "zh"
 
-        # 使用 langdetect 進行偵測
-        try:
-            detected = detect(clean_text)
-            logger.debug(f"langdetect 偵測結果: {detected}")
-
-            # 中文相關語言碼
-            if detected in ('zh-cn', 'zh-tw', 'zh', 'ko', 'ja'):
-                if self._contains_chinese(clean_text):
-                    return "zh"
-
-            # 印尼文或馬來文
-            if detected in ('id', 'ms'):
-                return "id"
-
-            # 檢查印尼文常見詞
-            if self._likely_indonesian(clean_text):
-                return "id"
-
-        except LangDetectException as e:
-            logger.warning(f"語言偵測失敗: {e}")
-
-        return "unknown"
+        logger.debug("非中文，交給 Google auto-detect 翻成中文")
+        return "other"
 
     def _contains_chinese(self, text: str) -> bool:
-        """檢查是否包含中文字元"""
         return bool(self.CHINESE_PATTERN.search(text))
 
     def _calculate_chinese_ratio(self, text: str) -> float:
-        """計算中文字元比例"""
         if not text:
             return 0.0
         chinese_chars = len(self.CHINESE_PATTERN.findall(text))
         total_chars = len(text.replace(" ", ""))
         return chinese_chars / total_chars if total_chars > 0 else 0.0
-
-    def _likely_indonesian(self, text: str) -> bool:
-        """檢查是否可能是印尼文（基於常見詞）"""
-        indonesian_markers = [
-            'yang', 'dan', 'di', 'ini', 'itu', 'untuk', 'dengan',
-            'tidak', 'dari', 'pada', 'ke', 'saya', 'anda', 'kamu',
-            'ada', 'akan', 'bisa', 'sudah', 'juga', 'atau', 'seperti',
-            'apa', 'siapa', 'dimana', 'kapan', 'mengapa', 'bagaimana',
-            'terima kasih', 'selamat', 'pagi', 'siang', 'malam',
-            'makan', 'minum', 'tidur', 'kerja', 'pulang', 'pergi'
-        ]
-        text_lower = text.lower()
-        return any(marker in text_lower for marker in indonesian_markers)
