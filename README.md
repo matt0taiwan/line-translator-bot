@@ -14,10 +14,11 @@
 
 ### 管理員私訊（OpenClaw AI）
 - 管理員私訊優先送至 [OpenClaw](https://github.com/matt0taiwan/openclaw) LLM 處理
-- **三層記憶系統**：
-  - Layer 1：SQLite 對話歷史（每位使用者最多 20 輪、閒置 2 小時自動重置）
-  - Layer 2：daily memory 檔案注入（昨天 + 今天的事件記憶）
-  - Layer 3：`MEMORY.md` 注入（長期結構化事實）
+- **記憶機制**：
+  - 對話歷史由 OpenClaw 自己的 disk-backed session 維護（用 `user="line-<USER_ID>"` 衍生 sessionKey），bot 端不再重複塞 history
+  - 每次請求注入 system message：`MEMORY.md`（長期結構化事實）+ 昨/今 daily memory（事件記憶）
+  - 完整對話狀態（含 tool call / reasoning）存在 `<openclaw>/.openclaw/agents/main/sessions/<id>.jsonl`
+- **Daily memory 寫入**：每輪互動 append 一行到 `<openclaw-workspace>/memory/<YYYY-MM-DD>.md`（人類觀察用）
 - **背景推送**：若 OpenClaw 思考時間超過 reply_token 安全窗口（20 秒），先回覆「思考中」，完成後透過 Push API 主動推送
 - **備援指令系統**：OpenClaw 無回應時自動 fallback 到固定指令（佇列模式）
 
@@ -34,7 +35,6 @@
 - **翻譯服務**: deep-translator（Google Translate）
 - **語言偵測**: langdetect + 中文正則表達式
 - **HTTP Client**: httpx（呼叫 OpenClaw）
-- **資料庫**: SQLite（對話記憶）
 - **日誌**: loguru
 - **部署**: Docker + Docker Compose
 - **HTTPS**: Cloudflare Tunnel
@@ -73,12 +73,10 @@
 │       ├── translator.py          # zh-TW ↔ id 翻譯（async）
 │       ├── language_detector.py   # 中文比例 + langdetect
 │       ├── admin_commands.py      # 管理員指令解析 + 寫入佇列
-│       └── openclaw_client.py     # OpenClaw API + 三層記憶
+│       └── openclaw_client.py     # OpenClaw API + system message 記憶注入
 ├── admin-queue/                   # 管理指令佇列（host bind-mount）
 │   ├── requests/                  # 待處理請求
 │   └── processed/                 # 已處理紀錄
-├── data/
-│   └── history.db                 # SQLite 對話歷史
 ├── logs/                          # loguru 應用日誌
 ├── Dockerfile
 ├── docker-compose.yml
@@ -140,8 +138,7 @@ docker compose up -d --build
 |---|---|---|
 | `/app/logs` | `./logs` | 應用日誌 |
 | `/app/admin-queue` | `./admin-queue` | 管理指令佇列 |
-| `/app/data` | `./data` | SQLite 對話歷史 |
-| `/openclaw-workspace` | `/opt/openclaw/.openclaw/workspace` | OpenClaw 記憶共用 |
+| `/openclaw-workspace` | `/opt/openclaw/.openclaw/workspace` | 注入 MEMORY.md / daily memory 給 OpenClaw |
 
 ### 5. 設定 LINE Developer Console
 
@@ -279,12 +276,16 @@ LINE API 限制：
 
 ### 對話記憶想重置
 
-刪除 SQLite 中該使用者的記錄即可：
+對話歷史由 OpenClaw 自己的 session 維護，bot 端沒有持久化記憶。重置選項：
 
-```bash
-docker compose exec line-translator-bot \
-  sqlite3 /app/data/history.db "DELETE FROM messages WHERE user_id='<USER_ID>';"
-```
+1. **強制開新 session**（最簡單）：在 [openclaw_client.py](app/services/openclaw_client.py) 的 `body["user"]` 加上時間 suffix，例如 `f"line-{user_id}-{int(time.time())}"`，OpenClaw 會視為新使用者開新 session
+2. **直接刪 session 檔**（保留歷史 dump 用）：
+   ```bash
+   # 先確認是哪個 session（OpenClaw 會 hash user= 衍生）
+   ls /opt/openclaw/.openclaw/agents/main/sessions/
+   # 刪除後 OpenClaw 下次互動會建新的
+   rm /opt/openclaw/.openclaw/agents/main/sessions/<session-id>.jsonl
+   ```
 
 ## 授權
 
