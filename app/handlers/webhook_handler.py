@@ -130,7 +130,7 @@ class LineWebhookHandler:
                 logger.info("OpenClaw 超過 reply_token 窗口，切換為背景推送模式")
                 await self._reply_message(
                     event.reply_token,
-                    TextMessage(text="🦞 Sibyl 思考中，稍後回覆⋯"),
+                    TextMessage(text="🧠 Sibyl 思考中，稍後回覆⋯"),
                 )
 
                 async def _push_when_ready():
