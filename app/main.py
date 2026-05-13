@@ -1,30 +1,31 @@
 """FastAPI 主應用程式"""
-from fastapi import FastAPI, Request, HTTPException, Header
-from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-from loguru import logger
 import sys
+from contextlib import asynccontextmanager
+
+import httpx
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
+from loguru import logger
 
 from app.config import get_settings
 from app.handlers.webhook_handler import LineWebhookHandler
 
 
-# 設定日誌
+# Logging
 logger.remove()
 logger.add(
     sys.stdout,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO"
+    level="INFO",
 )
 logger.add(
     "logs/app.log",
     rotation="10 MB",
     retention="7 days",
-    level="DEBUG"
+    level="DEBUG",
 )
 
 
-# 全域變數
 webhook_handler: LineWebhookHandler | None = None
 
 
@@ -33,52 +34,69 @@ async def lifespan(app: FastAPI):
     """應用程式生命週期管理"""
     global webhook_handler
 
-    # 啟動時初始化
     logger.info("正在初始化 LINE 翻譯機器人...")
     settings = get_settings()
-    webhook_handler = LineWebhookHandler()
+
+    if not settings.owner_user_id:
+        logger.warning("OWNER_USER_ID 未設定，admin AI 路徑停用（所有人都走翻譯）")
+    if not settings.openclaw_api_token:
+        logger.warning("OPENCLAW_API_TOKEN 未設定，admin AI 將 fallback 到指令系統")
+
+    webhook_handler = LineWebhookHandler(settings)
+
+    deleted = webhook_handler.openclaw.prune_old_memory()
+    if deleted:
+        logger.info(f"啟動清理：刪除 {deleted} 個舊 daily memory file")
+
     logger.info(f"LINE 翻譯機器人已啟動，監聽端口: {settings.app_port}")
-
     yield
-
-    # 關閉時清理
     logger.info("正在關閉 LINE 翻譯機器人...")
 
 
-# 建立 FastAPI 應用程式
 app = FastAPI(
     title="LINE Translator Bot",
     description="中文-印尼文自動翻譯機器人",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
 @app.get("/")
 async def root():
-    """根端點"""
     return {"status": "ok", "message": "LINE Translator Bot is running"}
 
 
 @app.get("/health")
 async def health_check():
-    """健康檢查端點"""
+    """健康檢查端點。永遠回 200（liveness），openclaw 欄位是 informational。"""
     return {
         "status": "healthy",
         "service": "line-translator-bot",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "openclaw": await _check_openclaw_status(),
     }
+
+
+async def _check_openclaw_status() -> str:
+    """快速 ping OpenClaw（1s timeout）。失敗回 'down'，token 未設定回 'disabled'。"""
+    settings = get_settings()
+    if not settings.openclaw_api_token:
+        return "disabled"
+    base_url = settings.openclaw_url.rsplit("/v1/", 1)[0] or settings.openclaw_url
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            resp = await client.get(base_url)
+            return "up" if resp.status_code < 500 else "down"
+    except Exception:
+        return "down"
 
 
 @app.post("/webhook")
 async def webhook(
     request: Request,
-    x_line_signature: str = Header(None, alias="X-Line-Signature")
+    x_line_signature: str = Header(None, alias="X-Line-Signature"),
 ):
-    """
-    LINE Webhook 端點
-    接收來自 LINE Platform 的事件
-    """
+    """LINE Webhook 端點"""
     if not x_line_signature:
         raise HTTPException(status_code=400, detail="Missing X-Line-Signature header")
 
@@ -89,29 +107,29 @@ async def webhook(
 
     try:
         webhook_handler.handle_webhook(body_text, x_line_signature)
-    except Exception as e:
-        logger.error(f"Webhook 處理錯誤: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception("Webhook 處理錯誤")
+        raise HTTPException(status_code=400, detail="Webhook processing failed")
 
     return JSONResponse(content={"status": "ok"})
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """全域例外處理"""
     logger.error(f"未處理的例外: {exc}")
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"}
+        content={"detail": "Internal server error"},
     )
 
 
 if __name__ == "__main__":
     import uvicorn
+
     settings = get_settings()
     uvicorn.run(
         "app.main:app",
         host=settings.app_host,
         port=settings.app_port,
-        reload=settings.debug
+        reload=settings.debug,
     )

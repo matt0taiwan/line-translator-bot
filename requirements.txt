@@ -1,19 +1,21 @@
+# 版本鎖死以利重現性。升級時手動測過後再動。
+
 # Web Framework
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
 
 # LINE Bot SDK
-line-bot-sdk>=3.5.0
+line-bot-sdk==3.23.0
 
-# Translation Services
-deep-translator>=1.11.0
+# Translation
+deep-translator==1.11.4
 
-# Environment & Configuration
-python-dotenv>=1.0.0
-pydantic-settings>=2.1.0
+# Configuration
+python-dotenv==1.2.2
+pydantic-settings==2.14.1
 
 # Logging
-loguru>=0.7.0
+loguru==0.7.3
 
-# HTTP Client (OpenClaw API)
-httpx>=0.27.0
+# HTTP Client (OpenClaw)
+httpx==0.28.1

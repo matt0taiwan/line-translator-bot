@@ -1,62 +1,58 @@
 """翻譯服務 - 使用 deep-translator 進行中印互譯"""
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+
 from deep_translator import GoogleTranslator
 from deep_translator.exceptions import (
-    TranslationNotFound,
     RequestError,
-    TooManyRequests
+    TooManyRequests,
+    TranslationNotFound,
 )
 from loguru import logger
+
+from app.config import Settings
 
 
 class TranslatorService:
     """翻譯服務"""
 
-    def __init__(self):
-        self.zh_to_id = GoogleTranslator(source='zh-TW', target='id')
-        self.auto_to_zh = GoogleTranslator(source='auto', target='zh-TW')
+    def __init__(self, settings: Settings):
+        self.zh_to_id = GoogleTranslator(source="zh-TW", target="id")
+        self.auto_to_zh = GoogleTranslator(source="auto", target="zh-TW")
+        self._executor = ThreadPoolExecutor(
+            max_workers=settings.translator_workers,
+            thread_name_prefix="translator",
+        )
 
     async def translate(
         self,
         text: str,
         source_lang: str,
-        target_lang: str
+        target_lang: str,
     ) -> str | None:
-        """
-        非同步翻譯文字
-
-        Args:
-            text: 要翻譯的文字
-            source_lang: 來源語言 ('zh' 或 'auto')
-            target_lang: 目標語言 ('zh' 或 'id')
-
-        Returns:
-            翻譯後的文字，失敗時返回 None
-        """
+        """非同步翻譯文字。失敗回 None；某些錯誤狀況回固定提示字串給使用者。"""
         if not text or not text.strip():
             return None
 
+        if source_lang == "zh" and target_lang == "id":
+            translator = self.zh_to_id
+        elif source_lang == "auto" and target_lang == "zh":
+            translator = self.auto_to_zh
+        else:
+            logger.error(f"不支援的語言組合: {source_lang} -> {target_lang}")
+            return None
+
         try:
-            loop = asyncio.get_event_loop()
-
-            if source_lang == 'zh' and target_lang == 'id':
-                translator = self.zh_to_id
-            elif source_lang == 'auto' and target_lang == 'zh':
-                translator = self.auto_to_zh
-            else:
-                logger.error(f"不支援的語言組合: {source_lang} -> {target_lang}")
-                return None
-
-            # 在執行緒池中執行同步翻譯
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
-                None,
-                partial(translator.translate, text)
+                self._executor,
+                partial(translator.translate, text),
             )
-
-            logger.info(f"翻譯成功: [{source_lang}] {text[:30]}... -> [{target_lang}] {result[:30]}...")
+            logger.info(
+                f"翻譯成功: [{source_lang}] {text[:30]}... -> [{target_lang}] {result[:30]}..."
+            )
             return result
-
         except TooManyRequests:
             logger.error("翻譯 API 請求過於頻繁")
             return "[翻譯失敗：請求過於頻繁，請稍後再試]"
@@ -71,9 +67,7 @@ class TranslatorService:
             return None
 
     async def chinese_to_indonesian(self, text: str) -> str | None:
-        """中文翻譯成印尼文"""
-        return await self.translate(text, 'zh', 'id')
+        return await self.translate(text, "zh", "id")
 
     async def to_chinese(self, text: str) -> str | None:
-        """非中文翻譯成中文（由 Google auto-detect 判斷來源語言）"""
-        return await self.translate(text, 'auto', 'zh')
+        return await self.translate(text, "auto", "zh")

@@ -32,10 +32,11 @@
 - **語言**: Python 3.12
 - **Web 框架**: FastAPI + Uvicorn
 - **LINE SDK**: line-bot-sdk 3.x（async API）
-- **翻譯服務**: deep-translator（Google Translate）
-- **語言偵測**: langdetect + 中文正則表達式
+- **翻譯服務**: deep-translator（Google Translate，含 auto-detect）
+- **語言偵測**: 中文比例正則 + Google auto-detect
 - **HTTP Client**: httpx（呼叫 OpenClaw）
 - **日誌**: loguru
+- **測試**: pytest + pytest-asyncio
 - **部署**: Docker + Docker Compose
 - **HTTPS**: Cloudflare Tunnel
 
@@ -55,8 +56,8 @@
   └─ 一般訊息（含群組）
        │
        ├─ 中文字元 > 30%       → 翻譯成印尼文
-       ├─ langdetect = id / ms → 翻譯成中文
-       └─ 無法判定             → 不處理
+       ├─ 其他語言             → Google auto-detect 翻譯成中文
+       └─ 空白訊息             → 不處理
 ```
 
 ## 專案結構
@@ -77,10 +78,17 @@
 ├── admin-queue/                   # 管理指令佇列（host bind-mount）
 │   ├── requests/                  # 待處理請求
 │   └── processed/                 # 已處理紀錄
+├── tests/                         # pytest 單元測試
+│   ├── conftest.py
+│   ├── test_language_detector.py
+│   ├── test_admin_commands.py
+│   ├── test_sanitize_sender_name.py
+│   └── test_openclaw_client.py
 ├── logs/                          # loguru 應用日誌
 ├── Dockerfile
 ├── docker-compose.yml
-├── requirements.txt
+├── requirements.txt               # 鎖死版本
+├── requirements-dev.txt           # 額外：pytest
 ├── .env                           # 環境變數（請勿提交）
 └── .env.example                   # 環境變數範例
 ```
@@ -107,24 +115,21 @@ cd line-translator-bot
 cp .env.example .env
 ```
 
-編輯 `.env` 檔案，填入 LINE 與（選用）OpenClaw 憑證：
+編輯 `.env` 檔案。**必填**：
 
 ```env
-# LINE
 LINE_CHANNEL_SECRET=你的_channel_secret
 LINE_CHANNEL_ACCESS_TOKEN=你的_channel_access_token
-
-# Application
-APP_HOST=0.0.0.0
-APP_PORT=5000
-DEBUG=false
-
-# OpenClaw（選用，未設定則跳過 AI 助理）
-OPENCLAW_URL=http://host.docker.internal:18789/v1/chat/completions
-OPENCLAW_API_TOKEN=你的_openclaw_token
 ```
 
-> 若要啟用管理員功能，請編輯 [app/handlers/webhook_handler.py](app/handlers/webhook_handler.py) 中的 `OWNER_USER_ID` 為你自己的 LINE user ID。
+**選用**（要啟用管理員 AI 助理才需要）：
+
+```env
+OWNER_USER_ID=你的_LINE_user_id        # 私訊此 ID 走 OpenClaw AI；留空 = 停用
+OPENCLAW_API_TOKEN=你的_openclaw_token  # 留空 = AI 路徑停用、fallback 到 /help 系列指令
+```
+
+完整變數清單見 [.env.example](.env.example)（含預設值說明）。**OWNER_USER_ID 不再 hardcode 在程式碼裡**，調整登錄者只要改 `.env` + 重啟容器。
 
 ### 4. 啟動服務
 
@@ -244,9 +249,21 @@ curl https://你的網址/health
 {
   "status": "healthy",
   "service": "line-translator-bot",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "openclaw": "up"
 }
 ```
+
+`openclaw` 欄位為 informational：`up` / `down` / `disabled`（未設 token）。HTTP status 永遠 200——OpenClaw 失聯不會觸發容器重啟，因為重啟也修不好。
+
+### 跑單元測試
+
+```bash
+docker run --rm -v "$PWD:/app" -w /app python:3.12-slim \
+  sh -c "pip install -q -r requirements-dev.txt && pytest -v"
+```
+
+測試純粹本地邏輯（語言偵測、指令解析、記憶讀寫、Sender 名稱清洗），不打 LINE / OpenClaw / Google Translate。
 
 ## 疑難排解
 
@@ -273,6 +290,16 @@ LINE API 限制：
 2. 確認 `OPENCLAW_URL` 可從容器內存取（預設使用 `host.docker.internal`，需 `extra_hosts` 設定）
 3. 檢查 OpenClaw 服務本身是否運作正常
 4. 即使 OpenClaw 失敗，管理員仍可透過 `/help` 等備援指令操作
+
+### Daily memory file 越積越多
+
+`<openclaw-workspace>/memory/<YYYY-MM-DD>.md` 在啟動時自動 prune 超過 `MEMORY_RETENTION_DAYS`（預設 14 天）的檔案。要清乾淨就重啟容器：
+
+```bash
+docker compose restart
+```
+
+或調 `.env` 的 `MEMORY_RETENTION_DAYS` 後再 restart。
 
 ### 對話記憶想重置
 
