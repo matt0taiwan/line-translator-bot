@@ -19,16 +19,15 @@ class Settings(BaseSettings):
     default_chinese: str = "zh-TW"
     indonesian: str = "id"
     translator_workers: int = 4
+    translate_retries: int = 3
+    translate_retry_base_delay: float = 0.5
+    translate_cache_size: int = 2000
 
     # OpenClaw
     openclaw_url: str = "http://host.docker.internal:18789/v1/chat/completions"
     openclaw_api_token: str = ""
-    openclaw_workspace: str = "/openclaw-workspace"
     openclaw_timeout: float = 120.0
     openclaw_reply_window: int = 20
-
-    # Memory retention
-    memory_retention_days: int = 14
 
     # LINE profile cache
     profile_cache_ttl: int = 3600
