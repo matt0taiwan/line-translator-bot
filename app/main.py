@@ -44,10 +44,6 @@ async def lifespan(app: FastAPI):
 
     webhook_handler = LineWebhookHandler(settings)
 
-    deleted = webhook_handler.openclaw.prune_old_memory()
-    if deleted:
-        logger.info(f"啟動清理：刪除 {deleted} 個舊 daily memory file")
-
     logger.info(f"LINE 翻譯機器人已啟動，監聽端口: {settings.app_port}")
     yield
     logger.info("正在關閉 LINE 翻譯機器人...")

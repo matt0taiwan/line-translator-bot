@@ -14,9 +14,6 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./admin-queue:/app/admin-queue
-      - /opt/openclaw/.openclaw/workspace:/openclaw-workspace
-    environment:
-      - OPENCLAW_WORKSPACE=/openclaw-workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

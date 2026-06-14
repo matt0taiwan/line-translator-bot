@@ -11,13 +11,10 @@ from app.config import Settings  # noqa: E402
 
 
 @pytest.fixture
-def settings(tmp_path) -> Settings:
-    """每次測試一個乾淨的 workspace。"""
+def settings() -> Settings:
     return Settings(
         line_channel_secret="dummy_secret",
         line_channel_access_token="dummy_token",
         owner_user_id="Uowner",
         openclaw_api_token="dummy_openclaw",
-        openclaw_workspace=str(tmp_path),
-        memory_retention_days=7,
     )

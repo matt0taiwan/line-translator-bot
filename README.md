@@ -14,11 +14,9 @@
 
 ### 管理員私訊（OpenClaw AI）
 - 管理員私訊優先送至 [OpenClaw](https://github.com/matt0taiwan/openclaw) LLM 處理
-- **記憶機制**：
-  - 對話歷史由 OpenClaw 自己的 disk-backed session 維護（用 `user="line-<USER_ID>"` 衍生 sessionKey），bot 端不再重複塞 history
-  - 每次請求注入 system message：`MEMORY.md`（長期結構化事實）+ 昨/今 daily memory（事件記憶）
+- **記憶機制**：完全交給 OpenClaw 自己的 disk-backed session（用 `user="line-<USER_ID>"` 衍生 sessionKey），bot 端不再注入任何記憶層
   - 完整對話狀態（含 tool call / reasoning）存在 `<openclaw>/.openclaw/agents/main/sessions/<id>.jsonl`
-- **Daily memory 寫入**：每輪互動 append 一行到 `<openclaw-workspace>/memory/<YYYY-MM-DD>.md`（人類觀察用）
+  - 長期事實/skill prompts 由 OpenClaw workspace（MEMORY.md / SOUL.md / TOOLS.md 等）注入
 - **背景推送**：若 OpenClaw 思考時間超過 reply_token 安全窗口（20 秒），先回覆「思考中」，完成後透過 Push API 主動推送
 - **備援指令系統**：OpenClaw 無回應時自動 fallback 到固定指令（佇列模式）
 
@@ -143,7 +141,6 @@ docker compose up -d --build
 |---|---|---|
 | `/app/logs` | `./logs` | 應用日誌 |
 | `/app/admin-queue` | `./admin-queue` | 管理指令佇列 |
-| `/openclaw-workspace` | `/opt/openclaw/.openclaw/workspace` | 注入 MEMORY.md / daily memory 給 OpenClaw |
 
 ### 5. 設定 LINE Developer Console
 
@@ -290,16 +287,6 @@ LINE API 限制：
 2. 確認 `OPENCLAW_URL` 可從容器內存取（預設使用 `host.docker.internal`，需 `extra_hosts` 設定）
 3. 檢查 OpenClaw 服務本身是否運作正常
 4. 即使 OpenClaw 失敗，管理員仍可透過 `/help` 等備援指令操作
-
-### Daily memory file 越積越多
-
-`<openclaw-workspace>/memory/<YYYY-MM-DD>.md` 在啟動時自動 prune 超過 `MEMORY_RETENTION_DAYS`（預設 14 天）的檔案。要清乾淨就重啟容器：
-
-```bash
-docker compose restart
-```
-
-或調 `.env` 的 `MEMORY_RETENTION_DAYS` 後再 restart。
 
 ### 對話記憶想重置
 
